@@ -28,9 +28,7 @@
 
 #include <memory>
 
-#ifndef USES_LEGACY_FD_FBDEV
 #include <android-base/unique_fd.h>
-#endif
 
 #include "minui/minui.h"
 
@@ -46,11 +44,7 @@ void MinuiBackendFbdev::Blank(bool blank) {
 }
 
 void MinuiBackendFbdev::Blank(bool blank, DrmConnector index) {
-  if (index == DRM_MAIN) {
-    MinuiBackendFbdev::Blank(blank);
-  } else {
-    fprintf(stderr, "Unsupported multiple connectors, blank = %d, index = %d\n", blank, index);
-  }
+  fprintf(stderr, "Unsupported multiple connectors, blank = %d, index = %d\n", blank, index);
 }
 
 bool MinuiBackendFbdev::HasMultipleConnectors() {
@@ -71,33 +65,20 @@ void MinuiBackendFbdev::SetDisplayedFramebuffer(size_t n) {
 }
 
 GRSurface* MinuiBackendFbdev::Init() {
-#ifdef USES_LEGACY_FD_FBDEV
-  int fd = open("/dev/graphics/fb0", O_RDWR);
-#else
   android::base::unique_fd fd(open("/dev/graphics/fb0", O_RDWR | O_CLOEXEC));
-#endif
   if (fd == -1) {
     perror("cannot open fb0");
-#ifdef USES_LEGACY_FD_FBDEV
-    close(fd);
-#endif
     return nullptr;
   }
 
   fb_fix_screeninfo fi;
   if (ioctl(fd, FBIOGET_FSCREENINFO, &fi) < 0) {
     perror("failed to get fb0 info");
-#ifdef USES_LEGACY_FD_FBDEV
-    close(fd);
-#endif
     return nullptr;
   }
 
   if (ioctl(fd, FBIOGET_VSCREENINFO, &vi) < 0) {
     perror("failed to get fb0 info");
-#ifdef USES_LEGACY_FD_FBDEV
-    close(fd);
-#endif
     return nullptr;
   }
 
@@ -124,9 +105,6 @@ GRSurface* MinuiBackendFbdev::Init() {
   void* bits = mmap(0, fi.smem_len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
   if (bits == MAP_FAILED) {
     perror("failed to mmap framebuffer");
-#ifdef USES_LEGACY_FD_FBDEV
-    close(fd);
-#endif
     return nullptr;
   }
 
@@ -158,19 +136,10 @@ GRSurface* MinuiBackendFbdev::Init() {
 
   gr_draw = gr_framebuffer[1].get();
   memset(gr_draw->buffer_, 0, gr_draw->height * gr_draw->row_bytes);
-#ifdef USES_LEGACY_FD_FBDEV
-  fb_fd = fd;
-#else
   fb_fd = std::move(fd);
-#endif
   SetDisplayedFramebuffer(0);
 
-#ifdef USES_LEGACY_FD_FBDEV
-  printf("framebuffer: %d (%zu x %zu)\n", fb_fd, gr_draw->width, gr_draw->height);
-#else
   printf("framebuffer: %d (%zu x %zu)\n", fb_fd.get(), gr_draw->width, gr_draw->height);
-#endif
-
   Blank(false);
 
   return gr_draw;
@@ -188,11 +157,3 @@ GRSurface* MinuiBackendFbdev::Flip() {
   }
   return gr_draw;
 }
-
-#ifdef USES_LEGACY_FD_FBDEV
-MinuiBackendFbdev::~MinuiBackendFbdev() {
-  if (fb_fd != -1) {
-    close(fb_fd);
-  }
-}
-#endif

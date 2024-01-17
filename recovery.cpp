@@ -70,9 +70,11 @@
 using android::volmgr::VolumeManager;
 using android::volmgr::VolumeInfo;
 
+using android::fs_mgr::Fstab;
+
 using android::sp;
-using android::hardware::boot::V1_0::IBootControl;
 using android::hardware::boot::V1_0::CommandResult;
+using android::hardware::boot::V1_0::IBootControl;
 using android::hardware::boot::V1_0::Slot;
 
 static constexpr const char* COMMAND_FILE = "/cache/recovery/command";
@@ -181,14 +183,45 @@ static bool yes_no(Device* device, const char* question1, const char* question2)
   return (chosen_item == 1);
 }
 
+bool ask_to_continue_unverified(Device* device) {
+  device->GetUI()->SetProgressType(RecoveryUI::EMPTY);
+  return yes_no(device, "Signature verification failed", "Install anyway?");
+}
+
+bool ask_to_continue_downgrade(Device* device) {
+  device->GetUI()->SetProgressType(RecoveryUI::EMPTY);
+  return yes_no(device, "This package will downgrade your system", "Install anyway?");
+}
+
+std::string get_preferred_fs(Device* device) {
+  Fstab fstab;
+  auto read_fstab = ReadFstabFromFile("/etc/fstab", &fstab);
+  std::vector<std::string> headers{ "Choose what filesystem you want to use on /data", "Entries here are supported by your device." };
+  std::string fs = volume_for_mount_point("/data")->fs_type;
+  if (read_fstab) {
+      std::string current_filesystem = android::fs_mgr::GetEntryForPath(&fstab, "/data")->fs_type;
+      headers.emplace_back("Current filesystem: " + current_filesystem);
+  }
+  std::vector<std::string> items = get_data_fs_items();
+
+  if (items.size() > 1) {
+      size_t chosen_item = device->GetUI()->ShowMenu(
+          headers, items, 0, true,
+          std::bind(&Device::HandleMenuKey, device, std::placeholders::_1, std::placeholders::_2));
+      if (chosen_item == Device::kGoBack)
+        return "";
+      fs = items[chosen_item];
+  }
+  return fs;
+}
+
 std::string get_chosen_slot(Device* device) {
   std::vector<std::string> headers{ "Choose which slot to boot into on next boot." };
   std::vector<std::string> items{ "A", "B" };
   size_t chosen_item = device->GetUI()->ShowMenu(
       headers, items, 0, true,
       std::bind(&Device::HandleMenuKey, device, std::placeholders::_1, std::placeholders::_2));
-  if (chosen_item < 0)
-    return "";
+  if (chosen_item < 0) return "";
   return items[chosen_item];
 }
 
@@ -213,7 +246,8 @@ int set_slot(Device* device) {
 }
 
 static bool ask_to_wipe_data(Device* device) {
-  std::vector<std::string> headers{ "Format user data?", "This includes internal storage.", "THIS CANNOT BE UNDONE!" };
+  std::vector<std::string> headers{ "Format user data?", "This includes internal storage.",
+                                    "THIS CANNOT BE UNDONE!" };
   std::vector<std::string> items{ " Cancel", " Format data" };
 
   size_t chosen_item = device->GetUI()->ShowMenu(
@@ -293,7 +327,7 @@ static InstallResult prompt_and_wipe_data(Device* device) {
       return INSTALL_KEY_INTERRUPTED;
     }
     if (chosen_item == Device::kGoBack) {
-      return INSTALL_NONE;     // Go back, show menu
+      return INSTALL_NONE;  // Go back, show menu
     }
     if (chosen_item == 0) {
       return INSTALL_SUCCESS;  // Just reboot, no wipe; not a failure, user asked for it
@@ -480,7 +514,7 @@ static Device::BuiltinAction PromptAndWait(Device* device, InstallResult status)
     }
     ui->SetProgressType(RecoveryUI::EMPTY);
 
-change_menu:
+  change_menu:
     size_t chosen_item = ui->ShowMenu(
         device->GetMenuHeaders(), device->GetMenuItems(), 0, false,
         std::bind(&Device::HandleMenuKey, device, std::placeholders::_1, std::placeholders::_2));
@@ -538,8 +572,11 @@ change_menu:
       case Device::WIPE_DATA:
         save_current_log = true;
         if (ui->IsTextVisible()) {
+          auto fs = get_preferred_fs(device);
+          if (fs == "")
+            break;
           if (ask_to_wipe_data(device)) {
-            WipeData(device);
+            WipeData(device, fs);
           }
         } else {
           WipeData(device);
@@ -839,8 +876,17 @@ Device::BuiltinAction start_recovery(Device* device, const std::vector<std::stri
     ui->SetStage(st_cur, st_max);
   }
 
-  std::vector<std::string> title_lines = {};
+  // Extract the YYYYMMDD / YYYYMMDD_HHMMSS timestamp from the full version string.
+  // Assume the first instance of "-[0-9]{8}-", or "-[0-9]{8}_[0-9]{6}-" in case
+  // ETHEREAL_VERSION_APPEND_TIME_OF_DAY is set to true has the desired date.
+  std::string ver = android::base::GetProperty("ro.ethereal.version", "");
+  std::smatch ver_date_match;
+  std::regex_search(ver, ver_date_match, std::regex("-(\\d{8}(_\\d{6})?)-"));
+  std::string ver_date = ver_date_match.str(1);  // Empty if no match.
 
+  std::vector<std::string> title_lines = {
+    "Version: " + android::base::GetProperty("ro.ethereal.version", "(unknown)") + " " + ver_date,
+  };
   if (android::base::GetBoolProperty("ro.build.ab_update", false)) {
     std::string slot = android::base::GetProperty("ro.boot.slot_suffix", "");
     if (android::base::StartsWith(slot, "_")) slot.erase(0, 1);

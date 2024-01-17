@@ -149,7 +149,7 @@ class TextMenu : public Menu {
   size_t MenuEnd() const;
 
   // Menu example:
-  // info:                           Lineage Recovery
+  // info:                           Ethereal Recovery
   //                                 ....
   // help messages:                  Swipe up/down to move
   //                                 Swipe left/right to select
@@ -334,12 +334,12 @@ class ScreenRecoveryUI : public RecoveryUI, public DrawInterface {
       const std::vector<std::string>& backup_headers, const std::vector<std::string>& backup_items,
       const std::function<int(int, bool)>& key_handler) override;
 
+  // For Lid switch handle
+  int SetSwCallback(int code, int value) override;
+
   int MenuItemHeight() const override {
     return MenuCharHeight() + 2 * MenuItemPadding();
   }
-
-  // For Lid switch handle
-  int SetSwCallback(int code, int value) override;
 
  protected:
   static constexpr int kMenuIndent = 24;
@@ -462,7 +462,7 @@ class ScreenRecoveryUI : public RecoveryUI, public DrawInterface {
   std::unique_ptr<GRSurface> wipe_data_confirmation_text_;
   std::unique_ptr<GRSurface> wipe_data_menu_header_text_;
 
-  std::unique_ptr<GRSurface> default_logo;
+  std::unique_ptr<GRSurface> ethereal_logo_;
   std::unique_ptr<GRSurface> back_icon_;
   std::unique_ptr<GRSurface> back_icon_sel_;
   std::unique_ptr<GRSurface> fastbootd_logo_;

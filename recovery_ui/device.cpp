@@ -69,6 +69,7 @@ static void PopulateMenuItems() {
 }
 
 Device::Device(RecoveryUI* ui) : ui_(ui) {
+  ui->SetDevice(this);
   PopulateMenuItems();
 }
 
@@ -77,10 +78,11 @@ void Device::GoHome() {
   PopulateMenuItems();
 }
 
-static void RemoveMenuItemForAction(std::vector<menu_action_t>& menu, Device::BuiltinAction action) {
-  menu.erase(
-      std::remove_if(menu.begin(), menu.end(),
-                     [action](const auto& entry) { return entry.second == action; }), menu.end());
+static void RemoveMenuItemForAction(std::vector<menu_action_t>& menu,
+                                    Device::BuiltinAction action) {
+  menu.erase(std::remove_if(menu.begin(), menu.end(),
+                            [action](const auto& entry) { return entry.second == action; }),
+             menu.end());
   CHECK(!menu.empty());
 }
 
